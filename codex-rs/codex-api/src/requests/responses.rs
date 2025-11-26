@@ -185,6 +185,7 @@ mod tests {
             base_url: base_url.to_string(),
             query_params: None,
             wire: WireApi::Responses,
+            paths: crate::provider::ProviderPaths::default(),
             headers: HeaderMap::new(),
             retry: RetryConfig {
                 max_attempts: 1,

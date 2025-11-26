@@ -3,6 +3,7 @@ use codex_client::RetryOn;
 use codex_client::RetryPolicy;
 use http::Method;
 use http::header::HeaderMap;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -51,9 +52,17 @@ pub struct Provider {
     pub base_url: String,
     pub query_params: Option<HashMap<String, String>>,
     pub wire: WireApi,
+    pub paths: ProviderPaths,
     pub headers: HeaderMap,
     pub retry: RetryConfig,
     pub stream_idle_timeout: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProviderPaths {
+    pub chat: Option<String>,
+    pub responses: Option<String>,
+    pub compact: Option<String>,
 }
 
 impl Provider {
@@ -102,6 +111,30 @@ impl Provider {
 
         self.base_url.to_ascii_lowercase().contains("openai.azure.")
             || matches_azure_responses_base_url(&self.base_url)
+    }
+
+    pub fn chat_path(&self) -> Cow<'_, str> {
+        self.paths
+            .chat
+            .as_deref()
+            .map(Cow::Borrowed)
+            .unwrap_or(Cow::Borrowed("chat/completions"))
+    }
+
+    pub fn responses_path(&self) -> Cow<'_, str> {
+        self.paths
+            .responses
+            .as_deref()
+            .map(Cow::Borrowed)
+            .unwrap_or(Cow::Borrowed("responses"))
+    }
+
+    pub fn compact_path(&self) -> Cow<'_, str> {
+        self.paths
+            .compact
+            .as_deref()
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| self.responses_path())
     }
 }
 

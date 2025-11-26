@@ -88,10 +88,11 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
         self.stream_request(request).await
     }
 
-    fn path(&self) -> &'static str {
+    fn path(&self) -> std::borrow::Cow<'_, str> {
         match self.streaming.provider().wire {
-            WireApi::Responses | WireApi::Compact => "responses",
-            WireApi::Chat => "chat/completions",
+            WireApi::Responses => self.streaming.provider().responses_path(),
+            WireApi::Compact => self.streaming.provider().compact_path(),
+            WireApi::Chat => self.streaming.provider().chat_path(),
         }
     }
 
@@ -101,7 +102,12 @@ impl<T: HttpTransport, A: AuthProvider> ResponsesClient<T, A> {
         extra_headers: HeaderMap,
     ) -> Result<ResponseStream, ApiError> {
         self.streaming
-            .stream(self.path(), body, extra_headers, spawn_response_stream)
+            .stream(
+                self.path().as_ref(),
+                body,
+                extra_headers,
+                spawn_response_stream,
+            )
             .await
     }
 }

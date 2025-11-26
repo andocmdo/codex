@@ -300,6 +300,15 @@ mcp_oauth_credentials_store = "auto"
 # env_key = "AZURE_OPENAI_API_KEY"
 # # env_key_instructions = "Set AZURE_OPENAI_API_KEY in your environment"
 
+# --- Example: Custom path for a non-OpenAI layout ---
+# [model_providers.lara]
+# name = "Lara"
+# base_url = "https://api.lara.tdsynnex.com/v1"
+# wire_api = "chat"
+# http_headers = { "x-api-key" = "YOUR_API_KEY" }
+# [model_providers.lara.paths]
+# chat = "chat/assistant/stream"
+
 # --- Example: Local OSS (e.g., Ollama-compatible) ---
 # [model_providers.ollama]
 # name = "Ollama"
