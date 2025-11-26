@@ -94,6 +94,12 @@ wire_api = "chat"
 # If necessary, extra query params that need to be added to the URL.
 # See the Azure example below.
 query_params = {}
+
+# If the upstream API exposes a different path than `/chat/completions` or
+# `/responses`, override it here. The value is appended to `base_url` without
+# additional path segments.
+[model_providers.lara.paths]
+chat = "chat/assistant/stream"
 ```
 
 Note this makes it possible to use Codex CLI with non-OpenAI models, so long as they use a wire API that is compatible with the OpenAI chat completions API. For example, you could define the following provider to use Codex CLI with Ollama running locally:
@@ -965,6 +971,9 @@ Valid values:
 | `model_providers.<id>.query_params`              | map<string,string>                                                | Extra query params (e.g., Azure `api-version`).                                                                            |
 | `model_providers.<id>.http_headers`              | map<string,string>                                                | Additional static headers.                                                                                                 |
 | `model_providers.<id>.env_http_headers`          | map<string,string>                                                | Headers sourced from env vars.                                                                                             |
+| `model_providers.<id>.paths.chat`                | string                                                            | Override the chat path (default: `chat/completions`).                                                                      |
+| `model_providers.<id>.paths.responses`           | string                                                            | Override the responses path (default: `responses`).                                                                        |
+| `model_providers.<id>.paths.compact`             | string                                                            | Override the compact path (default: `responses`, or the custom responses path).                                            |
 | `model_providers.<id>.request_max_retries`       | number                                                            | Per‑provider HTTP retry count (default: 4).                                                                                |
 | `model_providers.<id>.stream_max_retries`        | number                                                            | SSE stream retry count (default: 5).                                                                                       |
 | `model_providers.<id>.stream_idle_timeout_ms`    | number                                                            | SSE idle timeout (ms) (default: 300000).                                                                                   |

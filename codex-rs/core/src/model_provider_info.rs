@@ -7,6 +7,7 @@
 
 use codex_api::Provider as ApiProvider;
 use codex_api::WireApi as ApiWireApi;
+use codex_api::provider::ProviderPaths as ApiProviderPaths;
 use codex_api::provider::RetryConfig as ApiRetryConfig;
 use codex_app_server_protocol::AuthMode;
 use http::HeaderMap;
@@ -42,6 +43,13 @@ pub enum WireApi {
     /// Regular Chat Completions compatible with `/v1/chat/completions`.
     #[default]
     Chat,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+pub struct ModelProviderPaths {
+    pub chat: Option<String>,
+    pub responses: Option<String>,
+    pub compact: Option<String>,
 }
 
 /// Serializable representation of a provider definition.
@@ -96,6 +104,11 @@ pub struct ModelProviderInfo {
     /// and API key (if needed) comes from the "env_key" environment variable.
     #[serde(default)]
     pub requires_openai_auth: bool,
+
+    /// Optional overrides for wire-level paths. Leave unset to use defaults
+    /// derived from the selected `wire_api`.
+    #[serde(default)]
+    pub paths: ModelProviderPaths,
 }
 
 impl ModelProviderInfo {
@@ -156,6 +169,7 @@ impl ModelProviderInfo {
                 WireApi::Responses => ApiWireApi::Responses,
                 WireApi::Chat => ApiWireApi::Chat,
             },
+            paths: self.paths.clone().into(),
             headers,
             retry,
             stream_idle_timeout: self.stream_idle_timeout(),
@@ -263,6 +277,7 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
                 stream_max_retries: None,
                 stream_idle_timeout_ms: None,
                 requires_openai_auth: true,
+                paths: ModelProviderPaths::default(),
             },
         ),
         (
@@ -277,6 +292,16 @@ pub fn built_in_model_providers() -> HashMap<String, ModelProviderInfo> {
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
     .collect()
+}
+
+impl From<ModelProviderPaths> for ApiProviderPaths {
+    fn from(value: ModelProviderPaths) -> Self {
+        ApiProviderPaths {
+            chat: value.chat,
+            responses: value.responses,
+            compact: value.compact,
+        }
+    }
 }
 
 pub fn create_oss_provider(default_provider_port: u16, wire_api: WireApi) -> ModelProviderInfo {
@@ -314,6 +339,7 @@ pub fn create_oss_provider_with_base_url(base_url: &str, wire_api: WireApi) -> M
         stream_max_retries: None,
         stream_idle_timeout_ms: None,
         requires_openai_auth: false,
+        paths: ModelProviderPaths::default(),
     }
 }
 
@@ -342,6 +368,7 @@ base_url = "http://localhost:11434/v1"
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
+            paths: ModelProviderPaths::default(),
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
@@ -372,6 +399,7 @@ query_params = { api-version = "2025-04-01-preview" }
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
+            paths: ModelProviderPaths::default(),
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();
@@ -405,6 +433,7 @@ env_http_headers = { "X-Example-Env-Header" = "EXAMPLE_ENV_VAR" }
             stream_max_retries: None,
             stream_idle_timeout_ms: None,
             requires_openai_auth: false,
+            paths: ModelProviderPaths::default(),
         };
 
         let provider: ModelProviderInfo = toml::from_str(azure_provider_toml).unwrap();

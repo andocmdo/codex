@@ -345,6 +345,7 @@ mod tests {
             base_url: "https://api.openai.com/v1".to_string(),
             query_params: None,
             wire: WireApi::Chat,
+            paths: crate::provider::ProviderPaths::default(),
             headers: HeaderMap::new(),
             retry: RetryConfig {
                 max_attempts: 1,

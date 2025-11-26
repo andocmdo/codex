@@ -124,6 +124,7 @@ fn provider(name: &str, wire: WireApi) -> Provider {
         base_url: "https://example.com/v1".to_string(),
         query_params: None,
         wire,
+        paths: codex_api::provider::ProviderPaths::default(),
         headers: HeaderMap::new(),
         retry: codex_api::provider::RetryConfig {
             max_attempts: 1,
@@ -209,6 +210,22 @@ async fn chat_client_uses_chat_completions_path_for_chat_wire() -> Result<()> {
 }
 
 #[tokio::test]
+async fn chat_client_honors_custom_chat_path() -> Result<()> {
+    let state = RecordingState::default();
+    let transport = RecordingTransport::new(state.clone());
+    let mut custom_provider = provider("lara", WireApi::Chat);
+    custom_provider.paths.chat = Some("chat/assistant/stream".to_string());
+    let client = ChatClient::new(transport, custom_provider, NoAuth);
+
+    let body = serde_json::json!({ "echo": true });
+    let _stream = client.stream(body, HeaderMap::new()).await?;
+
+    let requests = state.take_stream_requests();
+    assert_path_ends_with(&requests, "/chat/assistant/stream");
+    Ok(())
+}
+
+#[tokio::test]
 async fn chat_client_uses_responses_path_for_responses_wire() -> Result<()> {
     let state = RecordingState::default();
     let transport = RecordingTransport::new(state.clone());
@@ -233,6 +250,22 @@ async fn responses_client_uses_responses_path_for_responses_wire() -> Result<()>
 
     let requests = state.take_stream_requests();
     assert_path_ends_with(&requests, "/responses");
+    Ok(())
+}
+
+#[tokio::test]
+async fn responses_client_honors_custom_responses_path() -> Result<()> {
+    let state = RecordingState::default();
+    let transport = RecordingTransport::new(state.clone());
+    let mut custom_provider = provider("lara", WireApi::Responses);
+    custom_provider.paths.responses = Some("chat/assistant/stream".to_string());
+    let client = ResponsesClient::new(transport, custom_provider, NoAuth);
+
+    let body = serde_json::json!({ "echo": true });
+    let _stream = client.stream(body, HeaderMap::new()).await?;
+
+    let requests = state.take_stream_requests();
+    assert_path_ends_with(&requests, "/chat/assistant/stream");
     Ok(())
 }
 
