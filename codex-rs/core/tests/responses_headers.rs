@@ -4,6 +4,7 @@ use codex_app_server_protocol::AuthMode;
 use codex_core::ContentItem;
 use codex_core::ModelClient;
 use codex_core::ModelProviderInfo;
+use codex_core::ModelProviderPaths;
 use codex_core::Prompt;
 use codex_core::ResponseEvent;
 use codex_core::ResponseItem;

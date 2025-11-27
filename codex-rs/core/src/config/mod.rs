@@ -115,6 +115,9 @@ pub struct Config {
     /// users are only interested in the final agent responses.
     pub hide_agent_reasoning: bool,
 
+    /// When `true`, log HTTP request/response data to /tmp/codex-http-*.log.
+    pub http_logging: bool,
+
     /// When set to `true`, `AgentReasoningRawContentEvent` events will be shown in the UI/output.
     /// Defaults to `false`.
     pub show_raw_agent_reasoning: bool,
@@ -652,6 +655,9 @@ pub struct ConfigToml {
     #[serde(default)]
     pub history: Option<History>,
 
+    /// When set to `true`, log HTTP request/response data to /tmp/codex-http-*.log.
+    pub http_logging: Option<bool>,
+
     /// Optional URI-based file opener. If set, citations to files in the model
     /// output will be hyperlinked using the specified URI scheme.
     pub file_opener: Option<UriBasedFileOpener>,
@@ -899,6 +905,7 @@ pub struct ConfigOverrides {
     pub base_instructions: Option<String>,
     pub developer_instructions: Option<String>,
     pub compact_prompt: Option<String>,
+    pub http_logging: Option<bool>,
     pub include_apply_patch_tool: Option<bool>,
     pub show_raw_agent_reasoning: Option<bool>,
     pub tools_web_search_request: Option<bool>,
@@ -958,6 +965,7 @@ impl Config {
             base_instructions,
             developer_instructions,
             compact_prompt,
+            http_logging,
             include_apply_patch_tool: include_apply_patch_tool_override,
             show_raw_agent_reasoning,
             tools_web_search_request: override_tools_web_search_request,
@@ -1173,6 +1181,7 @@ impl Config {
             .unwrap_or_else(default_review_model);
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
+        let http_logging_enabled = http_logging.or(cfg.http_logging).unwrap_or(false);
 
         let config = Self {
             model,
@@ -1222,6 +1231,7 @@ impl Config {
             codex_linux_sandbox_exe,
 
             hide_agent_reasoning: cfg.hide_agent_reasoning.unwrap_or(false),
+            http_logging: http_logging_enabled,
             show_raw_agent_reasoning: cfg
                 .show_raw_agent_reasoning
                 .or(show_raw_agent_reasoning)
@@ -1272,6 +1282,7 @@ impl Config {
                 }
             },
         };
+        crate::default_client::set_http_logging_enabled(config.http_logging);
         Ok(config)
     }
 
@@ -1379,6 +1390,7 @@ pub fn log_dir(cfg: &Config) -> std::io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ModelProviderPaths;
     use crate::config::edit::ConfigEdit;
     use crate::config::edit::ConfigEditsBuilder;
     use crate::config::edit::apply_blocking;
@@ -2986,6 +2998,7 @@ model_verbosity = "high"
                 file_opener: UriBasedFileOpener::VsCode,
                 codex_linux_sandbox_exe: None,
                 hide_agent_reasoning: false,
+                http_logging: false,
                 show_raw_agent_reasoning: false,
                 model_reasoning_effort: Some(ReasoningEffort::High),
                 model_reasoning_summary: ReasoningSummary::Detailed,
@@ -3059,6 +3072,7 @@ model_verbosity = "high"
             file_opener: UriBasedFileOpener::VsCode,
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
+            http_logging: false,
             show_raw_agent_reasoning: false,
             model_reasoning_effort: None,
             model_reasoning_summary: ReasoningSummary::default(),
@@ -3147,6 +3161,7 @@ model_verbosity = "high"
             file_opener: UriBasedFileOpener::VsCode,
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
+            http_logging: false,
             show_raw_agent_reasoning: false,
             model_reasoning_effort: None,
             model_reasoning_summary: ReasoningSummary::default(),
@@ -3221,6 +3236,7 @@ model_verbosity = "high"
             file_opener: UriBasedFileOpener::VsCode,
             codex_linux_sandbox_exe: None,
             hide_agent_reasoning: false,
+            http_logging: false,
             show_raw_agent_reasoning: false,
             model_reasoning_effort: Some(ReasoningEffort::High),
             model_reasoning_summary: ReasoningSummary::Detailed,

@@ -7,6 +7,7 @@ use codex_core::LocalShellExecAction;
 use codex_core::LocalShellStatus;
 use codex_core::ModelClient;
 use codex_core::ModelProviderInfo;
+use codex_core::ModelProviderPaths;
 use codex_core::NewConversation;
 use codex_core::Prompt;
 use codex_core::ResponseEvent;

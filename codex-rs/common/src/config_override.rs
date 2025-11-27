@@ -17,6 +17,11 @@ use toml::Value;
 /// calling code can decide how to interpret the right-hand side.
 #[derive(Parser, Debug, Default, Clone)]
 pub struct CliConfigOverrides {
+    /// Enable verbose HTTP logging to /tmp/codex-http-requests.log and
+    /// /tmp/codex-http-responses.log.
+    #[arg(long = "log-http", default_value_t = false, global = true)]
+    pub log_http: bool,
+
     /// Override a configuration value that would otherwise be loaded from
     /// `~/.codex/config.toml`. Use a dotted path (`foo.bar.baz`) to override
     /// nested values. The `value` portion is parsed as TOML. If it fails to
@@ -40,7 +45,8 @@ impl CliConfigOverrides {
     /// Parse the raw strings captured from the CLI into a list of `(path,
     /// value)` tuples where `value` is a `serde_json::Value`.
     pub fn parse_overrides(&self) -> Result<Vec<(String, Value)>, String> {
-        self.raw_overrides
+        let mut overrides = self
+            .raw_overrides
             .iter()
             .map(|s| {
                 // Only split on the *first* '=' so values are free to contain
@@ -73,7 +79,13 @@ impl CliConfigOverrides {
 
                 Ok((key.to_string(), value))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if self.log_http {
+            overrides.push(("http_logging".to_string(), Value::Boolean(true)));
+        }
+
+        Ok(overrides)
     }
 
     /// Apply all parsed overrides onto `target`. Intermediate objects will be

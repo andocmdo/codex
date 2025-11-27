@@ -2,6 +2,7 @@
 //! delivering a `response.completed` event.
 
 use codex_core::ModelProviderInfo;
+use codex_core::ModelProviderPaths;
 use codex_core::WireApi;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::Op;

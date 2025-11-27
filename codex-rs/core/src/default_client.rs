@@ -1,5 +1,8 @@
 use crate::spawn::CODEX_SANDBOX_ENV_VAR;
+use bytes::Bytes;
 use http::Error as HttpError;
+use http_body_util::BodyExt;
+use reqwest::Body;
 use reqwest::IntoUrl;
 use reqwest::Method;
 use reqwest::Response;
@@ -8,9 +11,20 @@ use reqwest::header::HeaderValue;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::io::Error as IoError;
+use std::io::Write;
+use std::path::Path;
 use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use tokio::task;
+
+const REQUEST_LOG_PATH: &str = "/tmp/codex-http-requests.log";
+const RESPONSE_LOG_PATH: &str = "/tmp/codex-http-responses.log";
 
 /// Set this to add a suffix to the User-Agent string.
 ///
@@ -30,10 +44,19 @@ use std::sync::OnceLock;
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
+static HTTP_LOGGING_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug)]
 pub struct CodexHttpClient {
     inner: reqwest::Client,
+}
+
+pub fn set_http_logging_enabled(enabled: bool) {
+    HTTP_LOGGING_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+fn http_logging_enabled() -> bool {
+    HTTP_LOGGING_ENABLED.load(Ordering::Relaxed)
 }
 
 impl CodexHttpClient {
@@ -60,21 +83,33 @@ impl CodexHttpClient {
         U: IntoUrl,
     {
         let url_str = url.as_str().to_string();
-        CodexRequestBuilder::new(self.inner.request(method.clone(), url), method, url_str)
+        CodexRequestBuilder::new(
+            self.inner.clone(),
+            self.inner.request(method.clone(), url),
+            method,
+            url_str,
+        )
     }
 }
 
 #[must_use = "requests are not sent unless `send` is awaited"]
 #[derive(Debug)]
 pub struct CodexRequestBuilder {
+    client: reqwest::Client,
     builder: reqwest::RequestBuilder,
     method: Method,
     url: String,
 }
 
 impl CodexRequestBuilder {
-    fn new(builder: reqwest::RequestBuilder, method: Method, url: String) -> Self {
+    fn new(
+        client: reqwest::Client,
+        builder: reqwest::RequestBuilder,
+        method: Method,
+        url: String,
+    ) -> Self {
         Self {
+            client,
             builder,
             method,
             url,
@@ -84,6 +119,7 @@ impl CodexRequestBuilder {
     fn map(self, f: impl FnOnce(reqwest::RequestBuilder) -> reqwest::RequestBuilder) -> Self {
         Self {
             builder: f(self.builder),
+            client: self.client,
             method: self.method,
             url: self.url,
         }
@@ -114,8 +150,38 @@ impl CodexRequestBuilder {
     }
 
     pub async fn send(self) -> Result<Response, reqwest::Error> {
-        match self.builder.send().await {
+        let request = self.builder.build()?;
+
+        if http_logging_enabled()
+            && let Err(error) = log_request(&request).await
+        {
+            tracing::warn!(
+                method = %self.method,
+                url = %self.url,
+                error = ?error,
+                "Failed to log HTTP request",
+            );
+        }
+
+        match self.client.execute(request).await {
             Ok(response) => {
+                let response = if http_logging_enabled() {
+                    match log_response(response).await {
+                        Ok(res) => res,
+                        Err(error) => {
+                            tracing::warn!(
+                                method = %self.method,
+                                url = %self.url,
+                                error = %error,
+                                "Failed to log HTTP response",
+                            );
+                            return Err(error);
+                        }
+                    }
+                } else {
+                    response
+                };
+
                 let request_ids = Self::extract_request_ids(&response);
                 tracing::debug!(
                     method = %self.method,
@@ -123,19 +189,31 @@ impl CodexRequestBuilder {
                     status = %response.status(),
                     request_ids = ?request_ids,
                     version = ?response.version(),
-                    "Request completed"
+                    "Request completed",
                 );
 
                 Ok(response)
             }
             Err(error) => {
+                if http_logging_enabled()
+                    && let Err(log_error) =
+                        log_response_error(&self.method, &self.url, &error).await
+                {
+                    tracing::warn!(
+                        method = %self.method,
+                        url = %self.url,
+                        error = ?log_error,
+                        "Failed to log HTTP response error",
+                    );
+                }
+
                 let status = error.status();
                 tracing::debug!(
                     method = %self.method,
                     url = %self.url,
                     status = status.map(|s| s.as_u16()),
                     error = %error,
-                    "Request failed"
+                    "Request failed",
                 );
                 Err(error)
             }
@@ -153,6 +231,122 @@ impl CodexRequestBuilder {
             })
             .collect()
     }
+}
+
+async fn log_request(request: &reqwest::Request) -> std::io::Result<()> {
+    let body = request
+        .body()
+        .and_then(Body::as_bytes)
+        .map(format_body_bytes)
+        .unwrap_or_else(|| "<body not captured (streaming or multipart)>".to_string());
+
+    let entry = format!(
+        "[{timestamp}] {method} {url}\nHeaders:\n{headers}Body:\n{body}\n\n",
+        timestamp = log_timestamp(),
+        method = request.method(),
+        url = request.url(),
+        headers = format_headers(request.headers()),
+        body = body,
+    );
+
+    append_log(Path::new(REQUEST_LOG_PATH), entry).await
+}
+
+async fn log_response(mut response: Response) -> Result<Response, reqwest::Error> {
+    let url = response.url().clone();
+    let status = response.status();
+    let version = response.version();
+    let headers = response.headers().clone();
+
+    let http_response: http::Response<Body> = response.into();
+    let (parts, body) = http_response.into_parts();
+
+    let collected = match body.collect().await {
+        Ok(collected) => collected,
+        Err(error) => {
+            tracing::warn!(url = %url, status = %status, error = %error, "Failed to collect HTTP response body for logging");
+            let rebuilt = http::Response::from_parts(parts, Body::from(Bytes::new()));
+            return Ok(Response::from(rebuilt));
+        }
+    };
+
+    let body_bytes = collected.to_bytes();
+    let rebuilt = http::Response::from_parts(parts, Body::from(body_bytes.clone()));
+    response = Response::from(rebuilt);
+
+    let entry = format!(
+        "[{timestamp}] {status} {url} (HTTP/{version:?})\nHeaders:\n{headers}Body:\n{body}\n\n",
+        timestamp = log_timestamp(),
+        status = status,
+        url = url,
+        version = version,
+        headers = format_headers(&headers),
+        body = format_body_bytes(&body_bytes),
+    );
+
+    if let Err(error) = append_log(Path::new(RESPONSE_LOG_PATH), entry).await {
+        tracing::warn!(url = %url, status = %status, error = ?error, "Failed to log HTTP response");
+    }
+
+    Ok(response)
+}
+
+async fn log_response_error(
+    method: &Method,
+    url: &str,
+    error: &reqwest::Error,
+) -> std::io::Result<()> {
+    let entry = format!(
+        "[{timestamp}] {method} {url}\nError: {error}\n\n",
+        timestamp = log_timestamp(),
+        method = method,
+        url = url,
+        error = error,
+    );
+
+    append_log(Path::new(RESPONSE_LOG_PATH), entry).await
+}
+
+fn log_timestamp() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+fn format_headers(headers: &reqwest::header::HeaderMap) -> String {
+    if headers.is_empty() {
+        return "  <none>\n".to_string();
+    }
+
+    headers
+        .iter()
+        .map(|(name, value)| {
+            let rendered_value = value
+                .to_str()
+                .map(std::borrow::ToOwned::to_owned)
+                .unwrap_or_else(|_| format!("{value:?}"));
+            format!("  {name}: {rendered_value}\n")
+        })
+        .collect()
+}
+
+fn format_body_bytes(body: &[u8]) -> String {
+    String::from_utf8_lossy(body).to_string()
+}
+
+async fn append_log(path: &Path, entry: String) -> std::io::Result<()> {
+    let path = path.to_path_buf();
+
+    task::spawn_blocking(move || -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        file.write_all(entry.as_bytes())?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| IoError::other(format!("Failed to join log task: {error}")))?
 }
 #[derive(Debug, Clone)]
 pub struct Originator {
