@@ -42,6 +42,8 @@ encoding_rs = { workspace = true }
 eventsource-stream = { workspace = true }
 futures = { workspace = true }
 http = { workspace = true }
+http-body-util = "0.1.2"
+bytes = { workspace = true }
 indexmap = { workspace = true }
 keyring = { workspace = true, features = ["crypto-rust"] }
 libc = { workspace = true }

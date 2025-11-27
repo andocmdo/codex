@@ -1247,6 +1247,7 @@ impl CodexMessageProcessor {
             base_instructions,
             developer_instructions,
             compact_prompt,
+            http_logging: None,
             include_apply_patch_tool,
             ..Default::default()
         };
@@ -1426,6 +1427,7 @@ impl CodexMessageProcessor {
             codex_linux_sandbox_exe: self.codex_linux_sandbox_exe.clone(),
             base_instructions,
             developer_instructions,
+            http_logging: None,
             ..Default::default()
         }
     }
@@ -1973,6 +1975,7 @@ impl CodexMessageProcessor {
                     base_instructions,
                     developer_instructions,
                     compact_prompt,
+                    http_logging: None,
                     include_apply_patch_tool,
                     ..Default::default()
                 };
